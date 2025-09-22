@@ -59,10 +59,18 @@ export const Web3Provider = ({ children }) => {
     }
   };
 
+  const stateMapping = [
+    "AWAITING_PAYMENT",
+    "AWAITING_DELIVERY",
+    "COMPLETE",
+    "REFUNDED",
+    "DISPUTED"
+  ];
+
   // Load escrow data
   const loadEscrowData = async (escrowContract) => {
     try {
-      const [buyer, seller, arbiter, state, balance] = await Promise.all([
+      const [buyer, seller, arbiter, stateIndex, balance] = await Promise.all([
         escrowContract.buyer(),
         escrowContract.seller(),
         escrowContract.arbiter(),
@@ -74,7 +82,7 @@ export const Web3Provider = ({ children }) => {
         buyer,
         seller,
         arbiter,
-        state
+        state: stateMapping[stateIndex]
       });
       
       setEscrowBalance(ethers.formatEther(balance));
@@ -89,7 +97,6 @@ export const Web3Provider = ({ children }) => {
     try {
       const tx = await contract.deposit({ value: ethers.parseEther(amount) });
       await tx.wait();
-      await loadEscrowData(contract);
       return { success: true };
     } catch (error) {
       console.error('Error depositing funds:', error);
@@ -102,7 +109,6 @@ export const Web3Provider = ({ children }) => {
     try {
       const tx = await contract.release();
       await tx.wait();
-      await loadEscrowData(contract);
       return { success: true };
     } catch (error) {
       console.error('Error releasing funds:', error);
@@ -115,7 +121,6 @@ export const Web3Provider = ({ children }) => {
     try {
       const tx = await contract.refund();
       await tx.wait();
-      await loadEscrowData(contract);
       return { success: true };
     } catch (error) {
       console.error('Error refunding buyer:', error);
@@ -128,7 +133,6 @@ export const Web3Provider = ({ children }) => {
     try {
       const tx = await contract.resolveDispute(winner);
       await tx.wait();
-      await loadEscrowData(contract);
       return { success: true };
     } catch (error) {
       console.error('Error resolving dispute:', error);
@@ -136,12 +140,35 @@ export const Web3Provider = ({ children }) => {
     }
   };
 
-  // Initialize on mount
+  // Initialize on mount and set up event listeners
   useEffect(() => {
     if (window.ethereum) {
       init();
     }
   }, []);
+
+  useEffect(() => {
+    if (!contract) return;
+
+    const onStateChange = async () => {
+      console.log("State changed, reloading data...");
+      await loadEscrowData(contract);
+    };
+
+    // Listen for all relevant events
+    contract.on("Deposited", onStateChange);
+    contract.on("Released", onStateChange);
+    contract.on("Refunded", onStateChange);
+    contract.on("DisputeResolved", onStateChange);
+
+    // Cleanup listeners on component unmount
+    return () => {
+      contract.off("Deposited", onStateChange);
+      contract.off("Released", onStateChange);
+      contract.off("Refunded", onStateChange);
+      contract.off("DisputeResolved", onStateChange);
+    };
+  }, [contract]);
 
   return (
     <Web3Context.Provider
