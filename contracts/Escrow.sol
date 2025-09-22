@@ -129,14 +129,10 @@ contract Escrow {
     }
     
     /**
-     * @dev Function to get the current state as a string
-     * @return A string representing the current state
+     * @dev Function to get the current state as a uint8
+     * @return A uint8 representing the current state enum index
      */
-    function getState() external view returns (string memory) {
-        if (currentState == State.AWAITING_PAYMENT) return "AWAITING_PAYMENT";
-        if (currentState == State.AWAITING_DELIVERY) return "AWAITING_DELIVERY";
-        if (currentState == State.COMPLETE) return "COMPLETE";
-        if (currentState == State.REFUNDED) return "REFUNDED";
-        return "DISPUTED";
+    function getState() external view returns (uint8) {
+        return uint8(currentState);
     }
 }

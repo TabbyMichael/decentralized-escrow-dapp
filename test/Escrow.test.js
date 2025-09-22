@@ -22,9 +22,9 @@ describe("Escrow", function () {
       expect(await escrow.arbiter()).to.equal(arbiter.address);
     });
 
-    it("Should set the initial state to AWAITING_PAYMENT", async function () {
+    it("Should set the initial state to AWAITING_PAYMENT (state 0)", async function () {
       const { escrow } = await loadFixture(deployEscrowFixture);
-      expect(await escrow.getState()).to.equal("AWAITING_PAYMENT");
+      expect(await escrow.getState()).to.equal(0); // 0: AWAITING_PAYMENT
     });
   });
 
@@ -40,7 +40,7 @@ describe("Escrow", function () {
       });
 
       expect(await ethers.provider.getBalance(contractAddress)).to.equal(depositAmount);
-      expect(await escrow.getState()).to.equal("AWAITING_DELIVERY");
+      expect(await escrow.getState()).to.equal(1); // 1: AWAITING_DELIVERY
     });
 
     it("Should reject deposit if not in AWAITING_PAYMENT state", async function () {
@@ -79,14 +79,14 @@ describe("Escrow", function () {
       const { escrow, owner, seller, depositAmount } = await loadFixture(depositFixture);
       
       await expect(escrow.connect(owner).release()).to.changeEtherBalance(seller, depositAmount);
-      expect(await escrow.getState()).to.equal("COMPLETE");
+      expect(await escrow.getState()).to.equal(2); // 2: COMPLETE
     });
 
     it("Should allow arbiter to release funds to seller", async function () {
       const { escrow, arbiter, seller, depositAmount } = await loadFixture(depositFixture);
       
       await expect(escrow.connect(arbiter).release()).to.changeEtherBalance(seller, depositAmount);
-      expect(await escrow.getState()).to.equal("COMPLETE");
+      expect(await escrow.getState()).to.equal(2); // 2: COMPLETE
     });
 
     it("Should prevent non-authorized accounts from releasing funds", async function () {
@@ -116,14 +116,14 @@ describe("Escrow", function () {
       const { escrow, owner, depositAmount } = await loadFixture(depositFixture);
       
       await expect(escrow.connect(owner).refund()).to.changeEtherBalance(owner, depositAmount);
-      expect(await escrow.getState()).to.equal("REFUNDED");
+      expect(await escrow.getState()).to.equal(3); // 3: REFUNDED
     });
 
     it("Should allow arbiter to issue a refund", async function () {
       const { escrow, owner, arbiter, depositAmount } = await loadFixture(depositFixture);
       
       await expect(escrow.connect(arbiter).refund()).to.changeEtherBalance(owner, depositAmount);
-      expect(await escrow.getState()).to.equal("REFUNDED");
+      expect(await escrow.getState()).to.equal(3); // 3: REFUNDED
     });
 
     it("Should prevent non-authorized accounts from issuing refunds", async function () {
@@ -153,14 +153,14 @@ describe("Escrow", function () {
       const { escrow, owner, arbiter, depositAmount } = await loadFixture(depositFixture);
       
       await expect(escrow.connect(arbiter).resolveDispute(owner.address)).to.changeEtherBalance(owner, depositAmount);
-      expect(await escrow.getState()).to.equal("DISPUTED");
+      expect(await escrow.getState()).to.equal(4); // 4: DISPUTED
     });
 
     it("Should allow arbiter to resolve dispute in favor of seller", async function () {
       const { escrow, seller, arbiter, depositAmount } = await loadFixture(depositFixture);
       
       await expect(escrow.connect(arbiter).resolveDispute(seller.address)).to.changeEtherBalance(seller, depositAmount);
-      expect(await escrow.getState()).to.equal("DISPUTED");
+      expect(await escrow.getState()).to.equal(4); // 4: DISPUTED
     });
 
     it("Should prevent non-arbiter from resolving disputes", async function () {
