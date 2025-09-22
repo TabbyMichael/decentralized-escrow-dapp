@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { ethers } from 'ethers';
 import Escrow from '../artifacts/contracts/Escrow.sol/Escrow.json';
+import config from '../config.json';
 
 const Web3Context = createContext();
 
@@ -8,6 +9,7 @@ export const Web3Provider = ({ children }) => {
   const [account, setAccount] = useState('');
   const [contract, setContract] = useState(null);
   const [provider, setProvider] = useState(null);
+  const [networkError, setNetworkError] = useState('');
   const [escrowBalance, setEscrowBalance] = useState('0');
   const [escrowDetails, setEscrowDetails] = useState({
     buyer: '',
@@ -16,48 +18,57 @@ export const Web3Provider = ({ children }) => {
     state: ''
   });
 
-  // Contract address - update this after deployment
-  const escrowAddress = '0x5FbDB2315678afecb367f032d93F642f64180aa3'; // Hardhat default
-
-  // Initialize provider and signer
   const init = async () => {
     if (window.ethereum) {
       try {
-        // Request account access if needed
         await window.ethereum.request({ method: 'eth_requestAccounts' });
-        
-        // Create provider and signer
         const provider = new ethers.BrowserProvider(window.ethereum);
-        const signer = await provider.getSigner();
-        
-        // Get connected account
-        const accounts = await provider.listAccounts();
-        if (accounts.length > 0) {
-          setAccount(accounts[0].address);
+        setProvider(provider);
+
+        const network = await provider.getNetwork();
+        const networkId = network.chainId.toString();
+
+        const networkConfig = config[networkId];
+        if (!networkConfig) {
+          setNetworkError(`Unsupported network. Please switch to a supported network (e.g., Hardhat localnet).`);
+          return;
         }
-        
-        // Listen for account changes
+        setNetworkError('');
+
+        const signer = await provider.getSigner();
+        const connectedAccount = await signer.getAddress();
+        setAccount(connectedAccount);
+
         window.ethereum.on('accountsChanged', (accounts) => {
           setAccount(accounts[0] || '');
-          window.location.reload();
+          window.location.reload(); // Simple reload for state consistency
         });
-        
-        // Create contract instance
-        const escrowContract = new ethers.Contract(escrowAddress, Escrow.abi, signer);
-        
-        setProvider(provider);
+
+        window.ethereum.on('chainChanged', () => {
+            window.location.reload();
+        });
+
+        const escrowContract = new ethers.Contract(networkConfig.escrowAddress, Escrow.abi, signer);
         setContract(escrowContract);
         
-        // Load initial data
         await loadEscrowData(escrowContract);
         
       } catch (error) {
         console.error('Error initializing Web3:', error);
+        setNetworkError('Failed to initialize Web3. See console for details.');
       }
     } else {
-      console.log('Please install MetaMask!');
+      setNetworkError('Please install MetaMask!');
     }
   };
+
+  const stateMapping = [
+    "AWAITING_PAYMENT",
+    "AWAITING_DELIVERY",
+    "COMPLETE",
+    "REFUNDED",
+    "DISPUTED"
+  ];
 
   // Load escrow data
   const loadEscrowData = async (escrowContract) => {
@@ -74,7 +85,7 @@ export const Web3Provider = ({ children }) => {
         buyer,
         seller,
         arbiter,
-        state
+        state: stateMapping[Number(state)]
       });
       
       setEscrowBalance(ethers.formatEther(balance));
@@ -156,6 +167,7 @@ export const Web3Provider = ({ children }) => {
         refundBuyer,
         resolveDispute,
         isConnected: !!account,
+        networkError,
       }}
     >
       {children}
