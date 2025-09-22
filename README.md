@@ -14,26 +14,27 @@ A trustless escrow service built on Ethereum that allows secure transactions bet
 
 - **Frontend**: React, Chakra UI, Ethers.js
 - **Smart Contracts**: Solidity, Hardhat
-- **Testing**: Mocha, Chai, Waffle
+- **Testing**: Mocha, Chai, Hardhat Chai Matchers
 - **Development**: Hardhat Network
 
 ## Prerequisites
 
-- Node.js (v14 or later)
-- npm or yarn
+- Node.js (v16 or later)
+- npm
 - MetaMask browser extension
-- Hardhat
 
 ## Getting Started
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/decentralized-escrow-dapp.git
+git clone https://github.com/TabbyMichael/decentralized-escrow-dapp.git
 cd decentralized-escrow-dapp
 ```
 
 ### 2. Install dependencies
+
+This project has dependencies in the root directory and in the `frontend` directory.
 
 ```bash
 # Install root dependencies
@@ -45,7 +46,15 @@ npm install
 cd ..
 ```
 
-### 3. Start local development blockchain
+### 3. Compile the smart contract
+
+This will generate the contract artifacts and place them in `frontend/src/artifacts`.
+
+```bash
+npx hardhat compile
+```
+
+### 4. Start local development blockchain
 
 In a new terminal, run:
 
@@ -53,7 +62,9 @@ In a new terminal, run:
 npx hardhat node
 ```
 
-### 4. Deploy the smart contract
+This will start a local Hardhat Network instance and print a list of accounts with their private keys.
+
+### 5. Deploy the smart contract
 
 In a new terminal, run:
 
@@ -61,7 +72,13 @@ In a new terminal, run:
 npx hardhat run scripts/deploy.js --network localhost
 ```
 
-### 5. Start the frontend
+Copy the deployed contract address from the output.
+
+### 6. Update the contract address in the frontend
+
+Open `frontend/src/context/Web3Context.js` and update the `escrowAddress` variable with the address you copied in the previous step.
+
+### 7. Start the frontend
 
 In a new terminal, run:
 
@@ -71,6 +88,14 @@ npm start
 ```
 
 The application should now be running at `http://localhost:3000`.
+
+## Interacting with the Frontend
+
+1.  **Connect your wallet**: Click the "Connect Wallet" button and connect your MetaMask wallet. Make sure you are connected to the "Localhost 8545" network.
+2.  **Import an account**: Import one of the accounts from the `npx hardhat node` output into your MetaMask. This will give you an account with test ETH to interact with the contract.
+3.  **Deposit**: As the buyer, enter an amount in ETH and click "Deposit to Escrow".
+4.  **Release/Refund**: As the buyer or arbiter, you can release the funds to the seller or refund the buyer.
+5.  **Resolve Dispute**: As the arbiter, you can resolve a dispute and send the funds to either the buyer or the seller.
 
 ## Smart Contract Details
 
@@ -102,8 +127,4 @@ This project includes the following security features:
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+This project is licensed under the MIT License.

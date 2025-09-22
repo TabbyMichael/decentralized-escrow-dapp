@@ -1,12 +1,8 @@
 import "@nomicfoundation/hardhat-toolbox";
 import "hardhat-gas-reporter";
 import "solidity-coverage";
-import "@nomiclabs/hardhat-ethers";
-import "@nomicfoundation/hardhat-toolbox";
 
-
-/** @type import('hardhat/config').HardhatUserConfig */
-module.exports = {
+const config = {
   solidity: {
     version: "0.8.19",
     settings: {
@@ -22,6 +18,7 @@ module.exports = {
     },
     localhost: {
       chainId: 31337,
+      url: "http://127.0.0.1:8545",
     },
   },
   gasReporter: {
@@ -30,19 +27,6 @@ module.exports = {
   },
   mocha: {
     timeout: 100000
-  }
-};
-
-
-const config = {
-  solidity: "0.8.19",
-  networks: {
-    hardhat: {
-      chainId: 1337,
-    },
-    localhost: {
-      url: "http://127.0.0.1:8545",
-    },
   },
   paths: {
     artifacts: "./frontend/src/artifacts",

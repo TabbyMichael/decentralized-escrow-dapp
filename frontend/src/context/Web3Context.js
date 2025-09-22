@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { ethers } from 'ethers';
-import Escrow from '../../artifacts/contracts/Escrow.sol/Escrow.json';
+import Escrow from '../artifacts/contracts/Escrow.sol/Escrow.json';
 
 const Web3Context = createContext();
 
@@ -9,7 +9,6 @@ export const Web3Provider = ({ children }) => {
   const [contract, setContract] = useState(null);
   const [provider, setProvider] = useState(null);
   const [escrowBalance, setEscrowBalance] = useState('0');
-  const [escrowState, setEscrowState] = useState('');
   const [escrowDetails, setEscrowDetails] = useState({
     buyer: '',
     seller: '',
@@ -28,13 +27,13 @@ export const Web3Provider = ({ children }) => {
         await window.ethereum.request({ method: 'eth_requestAccounts' });
         
         // Create provider and signer
-        const provider = new ethers.providers.Web3Provider(window.ethereum);
-        const signer = provider.getSigner();
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
         
         // Get connected account
         const accounts = await provider.listAccounts();
         if (accounts.length > 0) {
-          setAccount(accounts[0]);
+          setAccount(accounts[0].address);
         }
         
         // Listen for account changes
@@ -78,7 +77,7 @@ export const Web3Provider = ({ children }) => {
         state
       });
       
-      setEscrowBalance(ethers.utils.formatEther(balance));
+      setEscrowBalance(ethers.formatEther(balance));
       
     } catch (error) {
       console.error('Error loading escrow data:', error);
@@ -88,7 +87,7 @@ export const Web3Provider = ({ children }) => {
   // Deposit funds to escrow
   const depositFunds = async (amount) => {
     try {
-      const tx = await contract.deposit({ value: ethers.utils.parseEther(amount) });
+      const tx = await contract.deposit({ value: ethers.parseEther(amount) });
       await tx.wait();
       await loadEscrowData(contract);
       return { success: true };
