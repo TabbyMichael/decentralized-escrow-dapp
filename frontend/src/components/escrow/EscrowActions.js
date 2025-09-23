@@ -179,6 +179,7 @@ const EscrowActions = () => {
   const isComplete = escrowDetails.state === 'COMPLETE';
   const isRefunded = escrowDetails.state === 'REFUNDED';
   const isDisputed = escrowDetails.state === 'DISPUTED';
+  const isParticipant = isBuyer || isSeller || isArbiter;
 
   const truncateAddress = (address) => {
     if (!address) return '0x0...0';
@@ -360,6 +361,17 @@ const EscrowActions = () => {
         {!isConnected && (
           <Box textAlign="center" py={4}>
             <Text color="gray.600">Please connect your wallet to interact with the escrow.</Text>
+          </Box>
+        )}
+
+        {isConnected && !isParticipant && (
+          <Box textAlign="center" py={4} bg="orange.50" borderRadius="md">
+            <Text color="orange.800" fontWeight="medium">
+              You are not a party to this escrow agreement (buyer, seller, or arbiter).
+            </Text>
+            <Text color="orange.700" fontSize="sm" mt={1}>
+              Your connected address: {truncateAddress(account)}
+            </Text>
           </Box>
         )}
       </VStack>

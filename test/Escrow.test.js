@@ -179,4 +179,36 @@ describe("Escrow", function () {
       ).to.be.revertedWith("Winner must be either buyer or seller");
     });
   });
+
+  describe("Re-entrancy Guard", function () {
+    it("Should prevent re-entrant calls to release()", async function () {
+      const { ethers } = hre;
+      const { owner, arbiter, depositAmount } = await loadFixture(deployEscrowFixture);
+
+      // Deploy the attacker contract
+      const Attacker = await ethers.getContractFactory("Attacker");
+      const attacker = await Attacker.deploy();
+      const attackerAddress = await attacker.getAddress();
+
+      // Deploy Escrow with Attacker as the seller. The deployer (owner) becomes the buyer.
+      const Escrow = await ethers.getContractFactory("Escrow", owner);
+      const escrow = await Escrow.deploy(attackerAddress, arbiter.address);
+      const escrowAddress = await escrow.getAddress();
+
+      // Set the escrow address in the attacker contract
+      await attacker.connect(owner).setEscrow(escrowAddress);
+
+      // Deposit funds into the escrow from the owner's (buyer's) account
+      await owner.sendTransaction({
+        to: escrowAddress,
+        value: depositAmount,
+      });
+
+      // Attempt the re-entrancy attack
+      // The owner (buyer) calls release, which sends funds to the attacker, which tries to call release again.
+      await expect(
+        escrow.connect(owner).release()
+      ).to.be.revertedWithCustomError(escrow, "FailedToSendEther");
+    });
+  });
 });

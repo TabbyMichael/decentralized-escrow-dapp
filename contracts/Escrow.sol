@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title Escrow
  * @dev A smart contract for handling escrow transactions between buyers and sellers
  * with an optional arbiter for dispute resolution
  */
-contract Escrow {
+contract Escrow is ReentrancyGuard {
+    // Custom Errors
+    error FailedToSendEther();
+
     // State variables
     address public buyer;
     address public seller;
@@ -63,7 +68,7 @@ contract Escrow {
      * @dev Function to release funds to the seller
      * Can be called by buyer or arbiter
      */
-    function release() external inState(State.AWAITING_DELIVERY) {
+    function release() external nonReentrant inState(State.AWAITING_DELIVERY) {
         require(
             msg.sender == buyer || msg.sender == arbiter,
             "Only buyer or arbiter can release funds"
@@ -74,7 +79,9 @@ contract Escrow {
         
         currentState = State.COMPLETE;
         (bool success, ) = payable(seller).call{value: balance}("");
-        require(success, "Transfer failed");
+        if (!success) {
+            revert FailedToSendEther();
+        }
         
         emit Released(seller, balance);
     }
@@ -83,7 +90,7 @@ contract Escrow {
      * @dev Function to refund the buyer
      * Can be called by buyer or arbiter
      */
-    function refund() external inState(State.AWAITING_DELIVERY) {
+    function refund() external nonReentrant inState(State.AWAITING_DELIVERY) {
         require(
             msg.sender == buyer || msg.sender == arbiter,
             "Only buyer or arbiter can refund"
@@ -94,7 +101,9 @@ contract Escrow {
         
         currentState = State.REFUNDED;
         (bool success, ) = payable(buyer).call{value: balance}("");
-        require(success, "Transfer failed");
+        if (!success) {
+            revert FailedToSendEther();
+        }
         
         emit Refunded(buyer, balance);
     }
@@ -104,7 +113,7 @@ contract Escrow {
      * Can only be called by the arbiter
      * @param _winner The address to receive the funds (either buyer or seller)
      */
-    function resolveDispute(address _winner) external onlyArbiter inState(State.AWAITING_DELIVERY) {
+    function resolveDispute(address _winner) external onlyArbiter nonReentrant inState(State.AWAITING_DELIVERY) {
         require(
             _winner == buyer || _winner == seller,
             "Winner must be either buyer or seller"
@@ -115,7 +124,9 @@ contract Escrow {
         
         currentState = State.DISPUTED;
         (bool success, ) = payable(_winner).call{value: balance}("");
-        require(success, "Transfer failed");
+        if (!success) {
+            revert FailedToSendEther();
+        }
         
         emit DisputeResolved(msg.sender, _winner, balance);
     }
