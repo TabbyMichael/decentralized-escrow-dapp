@@ -24,7 +24,7 @@ contract Attacker {
     // Fallback function to be called when ETH is sent to this contract
     receive() external payable {
         reentrantCallCount++;
-        if (reentrantCallCount < 2) {
+        if (address(escrow) != address(0) && reentrantCallCount < 2) {
             // Attempt to re-enter the release function
             escrow.release();
         }
