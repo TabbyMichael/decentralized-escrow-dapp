@@ -30,18 +30,17 @@
   - Clear on-chain roles: Buyer, Seller, and optional Arbiter
   - Customizable permissions for each role
 
-- **State Management**
-  - Clear state machine: `AWAITING_PAYMENT` → `AWAITING_DELIVERY` → `COMPLETE`/`REFUNDED`/`DISPUTED`
-  - Transparent state transitions
+- **Factory Pattern**
+  - Deploys a new `Escrow` contract for each agreement, managed by a central `EscrowFactory`.
+  - Scalable and cost-effective for managing multiple escrows.
 
-- **Dispute Resolution**
-  - Optional Arbiter role for conflict resolution
-  - Fair fund distribution based on resolution
+- **Robust State Management**
+  - Clear state machine: `AWAITING_PAYMENT` → `AWAITING_DELIVERY` → `SHIPPED` → `COMPLETE`/`REFUNDED`/`RESOLVED`
+  - Includes seller-specific actions (`confirmShipment`) to advance the escrow state.
 
-- **Modern UI/UX**
-  - Clean, responsive interface built with React and Chakra UI
-  - Seamless MetaMask integration
-  - Real-time transaction status updates
+- **Secure Dispute and Refund Process**
+  - A formal dispute can be raised by the buyer or seller.
+  - Only the arbiter can resolve disputes or issue refunds, preventing unilateral actions.
 
 ## ⚠️ Key Considerations
 
@@ -101,24 +100,40 @@
    npx hardhat node
    ```
 
-5. **Deploy contracts** (in a new terminal)
+5. **Deploy the factory contract** (in a new terminal)
    ```bash
    npx hardhat run scripts/deploy.js --network localhost
    ```
-   Copy the deployed contract address from the output.
+   Copy the deployed `EscrowFactory` contract address from the output. The frontend UI is not compatible with the factory pattern and is preserved in its original state for demonstration purposes only.
 
-6. **Configure frontend**
-   Update `frontend/src/context/Web3Context.js` with the deployed contract address:
-   ```javascript
-   const escrowAddress = 'YOUR_DEPLOYED_CONTRACT_ADDRESS';
-   ```
+### Interacting with the Factory
 
-7. **Start the frontend** (in a new terminal)
+To create a new escrow, you can use the Hardhat console.
+
+1. **Start the console**
    ```bash
-   cd frontend
-   npm start
+   npx hardhat console --network localhost
    ```
-   The app will be available at http://localhost:3000
+
+2. **Connect to the Factory and Create an Escrow**
+   ```javascript
+   // The address of your deployed factory
+   const factoryAddress = "YOUR_FACTORY_ADDRESS";
+
+   // Get signers (e.g., buyer, seller, arbiter)
+   const [buyer, seller, arbiter] = await ethers.getSigners();
+
+   // Attach to the factory contract
+   const factory = await ethers.getContractAt("EscrowFactory", factoryAddress);
+
+   // The 'buyer' creates a new escrow with 'seller' and 'arbiter'
+   await factory.connect(buyer).createEscrow(seller.address, arbiter.address);
+
+   // Get the address of the newly created escrow
+   const deployedEscrows = await factory.getDeployedEscrows();
+   const newEscrowAddress = deployedEscrows[deployedEscrows.length - 1];
+   console.log(`New escrow created at: ${newEscrowAddress}`);
+   ```
 
 ## 🔧 Configuration
 
@@ -166,7 +181,7 @@ npx hardhat run scripts/deploy.js --network sepolia
 
 ### 2. Verify on Etherscan
 ```bash
-npx hardhat verify --network sepolia DEPLOYED_CONTRACT_ADDRESS "Seller_Address" "Arbiter_Address"
+npx hardhat verify --network sepolia DEPLOYED_FACTORY_ADDRESS
 ```
 
 ### 3. Deploy Frontend
