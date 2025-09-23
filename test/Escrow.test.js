@@ -211,4 +211,92 @@ describe("Escrow", function () {
       ).to.be.revertedWithCustomError(escrow, "FailedToSendEther");
     });
   });
+
+  describe("Failed Transfers", function () {
+    it("Should revert release if seller rejects payment", async function () {
+      const { ethers } = hre;
+      const { owner, arbiter, depositAmount } = await loadFixture(deployEscrowFixture);
+
+      // Deploy the PaymentRejector contract
+      const PaymentRejector = await ethers.getContractFactory("PaymentRejector");
+      const paymentRejector = await PaymentRejector.deploy();
+      const rejectorAddress = await paymentRejector.getAddress();
+
+      // Deploy Escrow with PaymentRejector as the seller
+      const Escrow = await ethers.getContractFactory("Escrow", owner);
+      const escrow = await Escrow.deploy(rejectorAddress, arbiter.address);
+      const escrowAddress = await escrow.getAddress();
+
+      // Deposit funds
+      await owner.sendTransaction({
+        to: escrowAddress,
+        value: depositAmount,
+      });
+
+      // Attempt to release funds, expecting it to fail
+      await expect(
+        escrow.connect(owner).release()
+      ).to.be.revertedWithCustomError(escrow, "FailedToSendEther");
+    });
+
+    it("Should revert refund if buyer rejects payment", async function () {
+      const { ethers } = hre;
+      const [owner, , seller, arbiter] = await ethers.getSigners();
+      const depositAmount = ethers.parseEther("1.0");
+
+      // Deploy the BuyerContract helper
+      const BuyerContract = await ethers.getContractFactory("BuyerContract");
+      const buyerContract = await BuyerContract.deploy();
+
+      // Deploy Escrow via the BuyerContract, so the buyer is the contract itself
+      await buyerContract.deployEscrow(seller.address, arbiter.address);
+      const escrowAddress = await buyerContract.getEscrowAddress();
+      const escrow = await ethers.getContractAt("Escrow", escrowAddress);
+
+      // An account (can be anyone) sends funds to the escrow
+      await owner.sendTransaction({
+        to: escrowAddress,
+        value: depositAmount,
+      });
+
+      // Attempt to refund, expecting it to fail because the buyer contract rejects it
+      await expect(
+        escrow.connect(arbiter).refund()
+      ).to.be.revertedWithCustomError(escrow, "FailedToSendEther");
+    });
+  });
+
+  describe("Attacker Contract", function () {
+    async function deployAttackerFixture() {
+      const { ethers } = hre;
+      const [owner, otherAccount] = await ethers.getSigners();
+      const Attacker = await ethers.getContractFactory("Attacker", owner);
+      const attacker = await Attacker.deploy();
+      return { attacker, owner, otherAccount };
+    }
+
+    it("Should prevent non-owner from setting escrow address", async function () {
+      const { attacker, otherAccount } = await loadFixture(deployAttackerFixture);
+      const dummyEscrowAddress = otherAccount.address; // Just needs to be a valid address
+      await expect(
+        attacker.connect(otherAccount).setEscrow(dummyEscrowAddress)
+      ).to.be.revertedWith("Only owner can set escrow");
+    });
+
+    it("Should return the correct balance", async function () {
+      const { ethers } = hre;
+      const { attacker } = await loadFixture(deployAttackerFixture);
+      const attackerAddress = await attacker.getAddress();
+      const amount = ethers.parseEther("1.0");
+
+      // Send some ETH to the attacker contract
+      const [owner] = await ethers.getSigners();
+      await owner.sendTransaction({
+        to: attackerAddress,
+        value: amount
+      });
+
+      expect(await attacker.getBalance()).to.equal(amount);
+    });
+  });
 });
