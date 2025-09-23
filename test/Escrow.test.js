@@ -194,4 +194,61 @@ describe("Escrow Contract", function () {
         });
     });
   });
+
+  describe("Security Tests", function () {
+    async function shippedFixture() {
+        const deployData = await deployEscrowFixture();
+        const { escrow, buyer, seller, depositAmount } = deployData;
+        const contractAddress = await escrow.getAddress();
+        await buyer.sendTransaction({ to: contractAddress, value: depositAmount });
+        await escrow.connect(seller).confirmShipment();
+        return deployData;
+    }
+
+    it("Should revert release if seller rejects payment", async function () {
+      const { ethers } = hre;
+      const { buyer, arbiter, depositAmount } = await loadFixture(deployEscrowFixture);
+
+      const PaymentRejector = await ethers.getContractFactory("PaymentRejector");
+      const paymentRejector = await PaymentRejector.deploy();
+      const rejectorAddress = await paymentRejector.getAddress();
+
+      const Escrow = await ethers.getContractFactory("Escrow");
+      const escrow = await Escrow.deploy(buyer.address, rejectorAddress, arbiter.address);
+      const escrowAddress = await escrow.getAddress();
+
+      await buyer.sendTransaction({ to: escrowAddress, value: depositAmount });
+      // The PaymentRejector contract itself calls confirmShipment
+      await paymentRejector.doConfirmShipment(escrowAddress);
+
+      await expect(
+        escrow.connect(buyer).release()
+      ).to.be.revertedWithCustomError(escrow, "FailedToSendEther");
+    });
+
+    it("Should prevent re-entrant calls to release()", async function () {
+      const { ethers } = hre;
+      const { buyer, arbiter, depositAmount } = await loadFixture(deployEscrowFixture);
+
+      const Attacker = await ethers.getContractFactory("Attacker");
+      const attacker = await Attacker.deploy();
+      const attackerAddress = await attacker.getAddress();
+
+      const Escrow = await ethers.getContractFactory("Escrow");
+      const escrow = await Escrow.deploy(buyer.address, attackerAddress, arbiter.address);
+      const escrowAddress = await escrow.getAddress();
+
+      // The owner of the attacker contract is the deployer, not the buyer
+      await attacker.setEscrow(escrowAddress);
+
+      await buyer.sendTransaction({ to: escrowAddress, value: depositAmount });
+
+      // The attacker, as the seller, confirms shipment by calling its own function
+      await attacker.doConfirmShipment(escrowAddress);
+
+      await expect(
+        escrow.connect(buyer).release()
+      ).to.be.revertedWithCustomError(escrow, "FailedToSendEther");
+    });
+  });
 });

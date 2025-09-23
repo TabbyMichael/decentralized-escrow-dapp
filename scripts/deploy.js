@@ -1,10 +1,4 @@
-// We require the Hardhat Runtime Environment explicitly here. This is optional
-// but useful for running the script in a standalone fashion through `node <script>`.
-//
-// You can also run a script with `npx hardhat run <script>`. If you do that, Hardhat
-// will compile your contracts, add the Hardhat Runtime Environment's members to the
-// global scope, and execute the script.
-import hre from "hardhat";
+const hre = require("hardhat");
 
 async function main() {
   const [deployer] = await hre.ethers.getSigners();
@@ -16,6 +10,8 @@ async function main() {
   // Deploy the contract
   console.log("Deploying EscrowFactory...");
   const escrowFactory = await EscrowFactory.deploy();
+
+  // The 'deployed()' method is deprecated in ethers v6, use 'waitForDeployment()' instead
   await escrowFactory.waitForDeployment();
   const address = await escrowFactory.getAddress();
 
@@ -25,7 +21,7 @@ async function main() {
   if (hre.network.name !== "hardhat" && hre.network.name !== "localhost" && process.env.ETHERSCAN_API_KEY) {
     console.log("Waiting for block confirmations before verification...");
     // Wait for a few blocks to be mined
-    const receipt = await escrowFactory.deploymentTransaction().wait(5);
+    await escrowFactory.deploymentTransaction().wait(5);
     
     console.log("Verifying contract on Etherscan...");
     try {
