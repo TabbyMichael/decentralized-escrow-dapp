@@ -1,33 +1,29 @@
 import React from 'react';
 import { useWeb3 } from '../context/Web3Context';
-import { Button, useToast } from '@chakra-ui/react';
+import { Button } from '@chakra-ui/react';
 import { FaEthereum } from 'react-icons/fa';
+import { toaster } from './ui/toaster';
 
 const WalletConnect = () => {
   const { account, connectWallet, isConnected } = useWeb3();
-  const toast = useToast();
 
   const handleConnect = async () => {
     try {
       if (window.ethereum) {
         await connectWallet();
       } else {
-        toast({
+        toaster.create({
           title: 'MetaMask not found',
           description: 'Please install MetaMask to use this application.',
           status: 'error',
-          duration: 5000,
-          isClosable: true,
         });
       }
     } catch (error) {
       console.error('Error connecting to wallet:', error);
-      toast({
+      toaster.create({
         title: 'Error connecting to wallet',
         description: error.message,
         status: 'error',
-        duration: 5000,
-        isClosable: true,
       });
     }
   };
