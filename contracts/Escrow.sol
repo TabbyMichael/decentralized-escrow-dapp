@@ -17,11 +17,13 @@ contract Escrow is ReentrancyGuard {
     address public seller;
     address public arbiter;
     
-    enum State { AWAITING_PAYMENT, AWAITING_DELIVERY, COMPLETE, REFUNDED, DISPUTED }
+    enum State { AWAITING_PAYMENT, AWAITING_DELIVERY, SHIPPED, DISPUTED, COMPLETE, REFUNDED, RESOLVED }
     State public currentState;
     
     // Events
     event Deposited(address indexed buyer, uint256 amount);
+    event ItemShipped(address indexed seller);
+    event DisputeRaised(address indexed raisedBy);
     event Released(address indexed seller, uint256 amount);
     event Refunded(address indexed buyer, uint256 amount);
     event DisputeResolved(address indexed resolver, address indexed winner, uint256 amount);
@@ -29,6 +31,11 @@ contract Escrow is ReentrancyGuard {
     // Modifiers
     modifier onlyBuyer() {
         require(msg.sender == buyer, "Only buyer can call this function");
+        _;
+    }
+
+    modifier onlySeller() {
+        require(msg.sender == seller, "Only seller can call this function");
         _;
     }
     
@@ -44,36 +51,40 @@ contract Escrow is ReentrancyGuard {
     
     /**
      * @dev Constructor sets the buyer, seller, and optional arbiter addresses
+     * @param _buyer Address of the buyer
      * @param _seller Address of the seller
      * @param _arbiter Address of the arbiter (can be address(0) for no arbiter)
      */
-    constructor(address _seller, address _arbiter) {
+    constructor(address _buyer, address _seller, address _arbiter) {
+        require(_buyer != address(0), "Buyer address cannot be zero");
         require(_seller != address(0), "Seller address cannot be zero");
-        buyer = msg.sender;
+        buyer = _buyer;
         seller = _seller;
         arbiter = _arbiter;
         currentState = State.AWAITING_PAYMENT;
     }
     
     /**
-     * @dev Fallback function to receive ETH deposits
+     * @dev Fallback function to receive ETH deposits from the buyer
      */
-    receive() external payable inState(State.AWAITING_PAYMENT) {
+    receive() external payable onlyBuyer inState(State.AWAITING_PAYMENT) {
         require(msg.value > 0, "Must send ETH to deposit");
         currentState = State.AWAITING_DELIVERY;
         emit Deposited(msg.sender, msg.value);
     }
+
+    /**
+     * @dev Allows the seller to confirm they have shipped the item
+     */
+    function confirmShipment() external onlySeller inState(State.AWAITING_DELIVERY) {
+        currentState = State.SHIPPED;
+        emit ItemShipped(seller);
+    }
     
     /**
-     * @dev Function to release funds to the seller
-     * Can be called by buyer or arbiter
+     * @dev Allows the buyer to release funds to the seller after shipment
      */
-    function release() external nonReentrant inState(State.AWAITING_DELIVERY) {
-        require(
-            msg.sender == buyer || msg.sender == arbiter,
-            "Only buyer or arbiter can release funds"
-        );
-        
+    function release() external onlyBuyer nonReentrant inState(State.SHIPPED) {
         uint256 balance = address(this).balance;
         require(balance > 0, "No funds to release");
         
@@ -87,15 +98,9 @@ contract Escrow is ReentrancyGuard {
     }
     
     /**
-     * @dev Function to refund the buyer
-     * Can be called by buyer or arbiter
+     * @dev Allows the arbiter to issue a refund to the buyer
      */
-    function refund() external nonReentrant inState(State.AWAITING_DELIVERY) {
-        require(
-            msg.sender == buyer || msg.sender == arbiter,
-            "Only buyer or arbiter can refund"
-        );
-        
+    function refund() external onlyArbiter nonReentrant inState(State.AWAITING_DELIVERY) {
         uint256 balance = address(this).balance;
         require(balance > 0, "No funds to refund");
         
@@ -107,13 +112,22 @@ contract Escrow is ReentrancyGuard {
         
         emit Refunded(buyer, balance);
     }
+
+    /**
+     * @dev Allows the buyer or seller to raise a dispute
+     */
+    function raiseDispute() external inState(State.AWAITING_DELIVERY) {
+        require(msg.sender == buyer || msg.sender == seller, "Only buyer or seller can raise a dispute");
+        currentState = State.DISPUTED;
+        emit DisputeRaised(msg.sender);
+    }
     
     /**
      * @dev Function to resolve a dispute and send funds to the winning party
-     * Can only be called by the arbiter
+     * Can only be called by the arbiter when a dispute is active
      * @param _winner The address to receive the funds (either buyer or seller)
      */
-    function resolveDispute(address _winner) external onlyArbiter nonReentrant inState(State.AWAITING_DELIVERY) {
+    function resolveDispute(address _winner) external onlyArbiter nonReentrant inState(State.DISPUTED) {
         require(
             _winner == buyer || _winner == seller,
             "Winner must be either buyer or seller"
@@ -122,7 +136,7 @@ contract Escrow is ReentrancyGuard {
         uint256 balance = address(this).balance;
         require(balance > 0, "No funds to release");
         
-        currentState = State.DISPUTED;
+        currentState = State.RESOLVED;
         (bool success, ) = payable(_winner).call{value: balance}("");
         if (!success) {
             revert FailedToSendEther();
@@ -146,8 +160,10 @@ contract Escrow is ReentrancyGuard {
     function getState() external view returns (string memory) {
         if (currentState == State.AWAITING_PAYMENT) return "AWAITING_PAYMENT";
         if (currentState == State.AWAITING_DELIVERY) return "AWAITING_DELIVERY";
+        if (currentState == State.SHIPPED) return "SHIPPED";
+        if (currentState == State.DISPUTED) return "DISPUTED";
         if (currentState == State.COMPLETE) return "COMPLETE";
         if (currentState == State.REFUNDED) return "REFUNDED";
-        return "DISPUTED";
+        return "RESOLVED";
     }
 }

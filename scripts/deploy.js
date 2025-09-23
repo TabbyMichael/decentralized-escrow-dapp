@@ -1,44 +1,48 @@
-const hre = require("hardhat");
+// We require the Hardhat Runtime Environment explicitly here. This is optional
+// but useful for running the script in a standalone fashion through `node <script>`.
+//
+// You can also run a script with `npx hardhat run <script>`. If you do that, Hardhat
+// will compile your contracts, add the Hardhat Runtime Environment's members to the
+// global scope, and execute the script.
+import hre from "hardhat";
 
 async function main() {
-  console.log("Deploying Escrow contract...");
-  
-  // Get the contract factory
-  const Escrow = await hre.ethers.getContractFactory("Escrow");
-  
-  // Replace these with the actual addresses for seller and arbiter
-  // For testing, you can use the second and third account from Hardhat
-  const [deployer, seller, arbiter] = await hre.ethers.getSigners();
-  
-  console.log(`Deploying Escrow with the following roles:`);
-  console.log(`- Buyer (deployer): ${deployer.address}`);
-  console.log(`- Seller: ${seller.address}`);
-  console.log(`- Arbiter: ${arbiter.address}`);
-  
+  const [deployer] = await hre.ethers.getSigners();
+  console.log("Deploying contracts with the account:", deployer.address);
+
+  // Get the ContractFactory for EscrowFactory
+  const EscrowFactory = await hre.ethers.getContractFactory("EscrowFactory");
+
   // Deploy the contract
-  const escrow = await Escrow.deploy(seller.address, arbiter.address);
-  await escrow.deployed();
-  
-  console.log(`Escrow deployed to: ${escrow.address}`);
-  
-  // Verify the contract on Etherscan (if on a testnet/mainnet)
-  if (process.env.ETHERSCAN_API_KEY) {
-    console.log("Waiting for block confirmations...");
-    await escrow.deployTransaction.wait(6);
+  console.log("Deploying EscrowFactory...");
+  const escrowFactory = await EscrowFactory.deploy();
+  await escrowFactory.waitForDeployment();
+  const address = await escrowFactory.getAddress();
+
+  console.log(`EscrowFactory deployed to: ${address}`);
+
+  // Optional: Verify the contract on Etherscan
+  if (hre.network.name !== "hardhat" && hre.network.name !== "localhost" && process.env.ETHERSCAN_API_KEY) {
+    console.log("Waiting for block confirmations before verification...");
+    // Wait for a few blocks to be mined
+    const receipt = await escrowFactory.deploymentTransaction().wait(5);
     
     console.log("Verifying contract on Etherscan...");
-    await hre.run("verify:verify", {
-      address: escrow.address,
-      constructorArguments: [seller.address, arbiter.address],
-    });
+    try {
+      await hre.run("verify:verify", {
+        address: address,
+        constructorArguments: [], // No constructor arguments for EscrowFactory
+      });
+      console.log("Contract verified successfully.");
+    } catch (error) {
+      console.error("Verification failed:", error);
+    }
   }
 }
 
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.
-main()
-  .then(() => process.exit(0))
-  .catch((error) => {
-    console.error(error);
-    process.exit(1);
-  });
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
