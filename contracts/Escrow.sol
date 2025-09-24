@@ -1,32 +1,35 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title Escrow
- * @dev A smart contract for handling escrow transactions between buyers and sellers
- * with an optional arbiter for dispute resolution
+ * @dev A smart contract for handling escrow transactions with ERC20 tokens
+ * between buyers and sellers with an optional arbiter for dispute resolution.
  */
 contract Escrow is ReentrancyGuard {
     // Custom Errors
-    error FailedToSendEther();
+    error FailedToSendToken();
 
     // State variables
     address public buyer;
     address public seller;
     address public arbiter;
+    IERC20 public immutable token;
+    uint256 public immutable amount;
     
-    enum State { AWAITING_PAYMENT, AWAITING_DELIVERY, SHIPPED, DISPUTED, COMPLETE, REFUNDED, RESOLVED }
+    enum State { AWAITING_PAYMENT, AWAITING_DELIVERY, DISPUTED, COMPLETE, REFUNDED, RESOLVED }
     State public currentState;
     
     // Events
-    event Deposited(address indexed buyer, uint256 amount);
+    event Deposited(address indexed buyer, uint256 depositedAmount);
     event ItemShipped(address indexed seller);
     event DisputeRaised(address indexed raisedBy);
-    event Released(address indexed seller, uint256 amount);
-    event Refunded(address indexed buyer, uint256 amount);
-    event DisputeResolved(address indexed resolver, address indexed winner, uint256 amount);
+    event Released(address indexed seller, uint256 releasedAmount);
+    event Refunded(address indexed buyer, uint256 refundedAmount);
+    event DisputeResolved(address indexed resolver, address indexed winner, uint256 resolvedAmount);
     
     // Modifiers
     modifier onlyBuyer() {
@@ -50,71 +53,68 @@ contract Escrow is ReentrancyGuard {
     }
     
     /**
-     * @dev Constructor sets the buyer, seller, and optional arbiter addresses
-     * @param _buyer Address of the buyer
-     * @param _seller Address of the seller
-     * @param _arbiter Address of the arbiter (can be address(0) for no arbiter)
+     * @dev Constructor sets the parties, the token, and the amount.
+     * @param _buyer Address of the buyer.
+     * @param _seller Address of the seller.
+     * @param _arbiter Address of the arbiter.
+     * @param _token Address of the ERC20 token contract.
+     * @param _amount The amount of tokens to be held in escrow.
      */
-    constructor(address _buyer, address _seller, address _arbiter) {
+    constructor(
+        address _buyer,
+        address _seller,
+        address _arbiter,
+        address _token,
+        uint256 _amount
+    ) {
         require(_buyer != address(0), "Buyer address cannot be zero");
         require(_seller != address(0), "Seller address cannot be zero");
+        require(_token != address(0), "Token address cannot be zero");
+        require(_amount > 0, "Amount must be greater than zero");
+
         buyer = _buyer;
         seller = _seller;
         arbiter = _arbiter;
+        token = IERC20(_token);
+        amount = _amount;
         currentState = State.AWAITING_PAYMENT;
     }
     
     /**
-     * @dev Fallback function to receive ETH deposits from the buyer
+     * @dev Allows the buyer to deposit the agreed-upon amount of tokens.
+     * The buyer must have previously approved the contract to spend this amount.
      */
-    receive() external payable onlyBuyer inState(State.AWAITING_PAYMENT) {
-        require(msg.value > 0, "Must send ETH to deposit");
+    function deposit() external onlyBuyer inState(State.AWAITING_PAYMENT) {
+        bool success = token.transferFrom(buyer, address(this), amount);
+        require(success, "Token transfer from buyer failed");
+
         currentState = State.AWAITING_DELIVERY;
-        emit Deposited(msg.sender, msg.value);
+        emit Deposited(buyer, amount);
     }
 
     /**
-     * @dev Allows the seller to confirm they have shipped the item
+     * @dev Allows the seller to confirm they have shipped the item.
+     * Note: This version of the contract does not include a "SHIPPED" state
+     * to simplify the state machine. Release can happen directly after delivery confirmation.
      */
-    function confirmShipment() external onlySeller inState(State.AWAITING_DELIVERY) {
-        currentState = State.SHIPPED;
-        emit ItemShipped(seller);
-    }
-    
-    /**
-     * @dev Allows the buyer to release funds to the seller after shipment
-     */
-    function release() external onlyBuyer nonReentrant inState(State.SHIPPED) {
-        uint256 balance = address(this).balance;
-        require(balance > 0, "No funds to release");
-        
+    function confirmDelivery() external onlySeller inState(State.AWAITING_DELIVERY) {
         currentState = State.COMPLETE;
-        (bool success, ) = payable(seller).call{value: balance}("");
-        if (!success) {
-            revert FailedToSendEther();
-        }
-        
-        emit Released(seller, balance);
+        emit ItemShipped(seller); // Re-using ItemShipped event for simplicity
     }
     
     /**
-     * @dev Allows the arbiter to issue a refund to the buyer
+     * @dev Allows the buyer to release funds to the seller after delivery.
      */
-    function refund() external onlyArbiter nonReentrant inState(State.AWAITING_DELIVERY) {
-        uint256 balance = address(this).balance;
-        require(balance > 0, "No funds to refund");
-        
-        currentState = State.REFUNDED;
-        (bool success, ) = payable(buyer).call{value: balance}("");
+    function release() external onlyBuyer nonReentrant inState(State.COMPLETE) {
+        bool success = token.transfer(seller, amount);
         if (!success) {
-            revert FailedToSendEther();
+            revert FailedToSendToken();
         }
-        
-        emit Refunded(buyer, balance);
+        emit Released(seller, amount);
     }
 
     /**
-     * @dev Allows the buyer or seller to raise a dispute
+     * @dev Allows the buyer or seller to raise a dispute before the item is marked as delivered.
      */
     function raiseDispute() external inState(State.AWAITING_DELIVERY) {
         require(msg.sender == buyer || msg.sender == seller, "Only buyer or seller can raise a dispute");
@@ -123,9 +123,9 @@ contract Escrow is ReentrancyGuard {
     }
     
     /**
-     * @dev Function to resolve a dispute and send funds to the winning party
-     * Can only be called by the arbiter when a dispute is active
-     * @param _winner The address to receive the funds (either buyer or seller)
+     * @dev Function to resolve a dispute and send funds to the winning party.
+     * Can only be called by the arbiter when a dispute is active.
+     * @param _winner The address to receive the funds (either buyer or seller).
      */
     function resolveDispute(address _winner) external onlyArbiter nonReentrant inState(State.DISPUTED) {
         require(
@@ -133,37 +133,24 @@ contract Escrow is ReentrancyGuard {
             "Winner must be either buyer or seller"
         );
         
-        uint256 balance = address(this).balance;
-        require(balance > 0, "No funds to release");
-        
         currentState = State.RESOLVED;
-        (bool success, ) = payable(_winner).call{value: balance}("");
+        bool success = token.transfer(_winner, amount);
         if (!success) {
-            revert FailedToSendEther();
+            revert FailedToSendToken();
         }
         
-        emit DisputeResolved(msg.sender, _winner, balance);
+        emit DisputeResolved(msg.sender, _winner, amount);
     }
-    
+
     /**
-     * @dev Function to get the current balance of the escrow
-     * @return The current balance in wei
+     * @dev Allows the arbiter to refund the buyer if something goes wrong before delivery.
      */
-    function getBalance() external view returns (uint256) {
-        return address(this).balance;
-    }
-    
-    /**
-     * @dev Function to get the current state as a string
-     * @return A string representing the current state
-     */
-    function getState() external view returns (string memory) {
-        if (currentState == State.AWAITING_PAYMENT) return "AWAITING_PAYMENT";
-        if (currentState == State.AWAITING_DELIVERY) return "AWAITING_DELIVERY";
-        if (currentState == State.SHIPPED) return "SHIPPED";
-        if (currentState == State.DISPUTED) return "DISPUTED";
-        if (currentState == State.COMPLETE) return "COMPLETE";
-        if (currentState == State.REFUNDED) return "REFUNDED";
-        return "RESOLVED";
+    function refundBuyer() external onlyArbiter nonReentrant inState(State.AWAITING_DELIVERY) {
+        currentState = State.REFUNDED;
+        bool success = token.transfer(buyer, amount);
+        if (!success) {
+            revert FailedToSendToken();
+        }
+        emit Refunded(buyer, amount);
     }
 }
