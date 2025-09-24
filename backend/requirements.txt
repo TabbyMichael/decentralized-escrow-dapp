@@ -2,3 +2,5 @@ django
 djangorestframework
 djangorestframework-simplejwt
 pyjwt
+django-environ
+django-cors-headers
