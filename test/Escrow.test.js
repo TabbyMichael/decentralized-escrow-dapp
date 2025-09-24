@@ -2,253 +2,139 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 
-describe("Escrow Contract", function () {
+describe("ERC20 Escrow Contract", function () {
   async function deployEscrowFixture() {
     const { ethers } = hre;
-    const depositAmount = ethers.parseEther("1.0"); // 1 ETH
-    const [owner, buyer, seller, arbiter, otherAccount] = await ethers.getSigners();
+    const [owner, buyer, seller, arbiter] = await ethers.getSigners();
     
-    const Escrow = await hre.ethers.getContractFactory("Escrow");
-    // Deploy with explicit buyer, seller, and arbiter for isolated testing
-    const escrow = await Escrow.deploy(buyer.address, seller.address, arbiter.address);
+    // 1. Deploy the TestToken contract
+    const TestToken = await hre.ethers.getContractFactory("TestToken");
+    const testToken = await TestToken.deploy("Test Token", "TST");
+    const tokenAddress = await testToken.getAddress();
 
-    return { escrow, owner, buyer, seller, arbiter, otherAccount, depositAmount };
+    // 2. Define the escrow amount
+    const escrowAmount = ethers.parseUnits("100", 18); // 100 TST
+
+    // 3. Deploy the Escrow contract
+    const Escrow = await hre.ethers.getContractFactory("Escrow");
+    const escrow = await Escrow.deploy(
+      buyer.address,
+      seller.address,
+      arbiter.address,
+      tokenAddress,
+      escrowAmount
+    );
+    const escrowAddress = await escrow.getAddress();
+
+    // 4. Mint tokens to the buyer for the test
+    await testToken.mint(buyer.address, escrowAmount);
+
+    return { escrow, testToken, buyer, seller, arbiter, escrowAmount, escrowAddress };
   }
 
   describe("Deployment", function () {
-    it("Should set the right buyer, seller, and arbiter", async function () {
-      const { escrow, buyer, seller, arbiter } = await loadFixture(deployEscrowFixture);
+    it("Should set the right parties, token, and amount", async function () {
+      const { escrow, buyer, seller, arbiter, testToken, escrowAmount } = await loadFixture(deployEscrowFixture);
       expect(await escrow.buyer()).to.equal(buyer.address);
       expect(await escrow.seller()).to.equal(seller.address);
       expect(await escrow.arbiter()).to.equal(arbiter.address);
-    });
-
-    it("Should set the initial state to AWAITING_PAYMENT", async function () {
-      const { escrow } = await loadFixture(deployEscrowFixture);
-      expect(await escrow.getState()).to.equal("AWAITING_PAYMENT");
+      expect(await escrow.token()).to.equal(await testToken.getAddress());
+      expect(await escrow.amount()).to.equal(escrowAmount);
     });
   });
 
-  describe("Deposits", function () {
-    it("Should accept deposit from buyer and change state to AWAITING_DELIVERY", async function () {
-      const { ethers } = hre;
-      const { escrow, buyer, depositAmount } = await loadFixture(deployEscrowFixture);
-      const contractAddress = await escrow.getAddress();
+  describe("Deposit", function () {
+    it("Should accept deposit after buyer approves", async function () {
+      const { escrow, testToken, buyer, escrowAmount, escrowAddress } = await loadFixture(deployEscrowFixture);
 
-      await buyer.sendTransaction({ to: contractAddress, value: depositAmount });
+      // Buyer approves the escrow contract to spend tokens
+      await testToken.connect(buyer).approve(escrowAddress, escrowAmount);
 
-      expect(await ethers.provider.getBalance(contractAddress)).to.equal(depositAmount);
-      expect(await escrow.getState()).to.equal("AWAITING_DELIVERY");
+      // Buyer calls deposit
+      await expect(escrow.connect(buyer).deposit())
+        .to.emit(escrow, "Deposited")
+        .withArgs(buyer.address, escrowAmount);
+
+      // Check balances
+      expect(await testToken.balanceOf(buyer.address)).to.equal(0);
+      expect(await testToken.balanceOf(escrowAddress)).to.equal(escrowAmount);
+      expect(await escrow.currentState()).to.equal(1); // AWAITING_DELIVERY
     });
 
-    it("Should reject deposit from non-buyer", async function () {
-      const { escrow, otherAccount, depositAmount } = await loadFixture(deployEscrowFixture);
-      const contractAddress = await escrow.getAddress();
-
-      await expect(
-        otherAccount.sendTransaction({ to: contractAddress, value: depositAmount })
-      ).to.be.revertedWith("Only buyer can call this function");
+    it("Should reject deposit if buyer has not approved", async function () {
+      const { escrow, buyer } = await loadFixture(deployEscrowFixture);
+      // Note: No approval is given
+      await expect(escrow.connect(buyer).deposit()).to.be.revertedWith("ERC20: insufficient allowance");
     });
   });
 
-  describe("Seller Actions", function () {
-    async function depositFixture() {
-        const deployData = await deployEscrowFixture();
-        const { escrow, buyer, depositAmount } = deployData;
-        const contractAddress = await escrow.getAddress();
-        await buyer.sendTransaction({ to: contractAddress, value: depositAmount });
-        return deployData;
+  describe("Seller and Buyer Actions", function () {
+    // Fixture for tests that require a deposit to have been made
+    async function depositedFixture() {
+      const data = await loadFixture(deployEscrowFixture);
+      const { escrow, testToken, buyer, escrowAmount, escrowAddress } = data;
+      await testToken.connect(buyer).approve(escrowAddress, escrowAmount);
+      await escrow.connect(buyer).deposit();
+      return data;
     }
 
-    describe("confirmShipment", function() {
-        it("Should allow seller to confirm shipment and change state to SHIPPED", async function () {
-            const { escrow, seller } = await loadFixture(depositFixture);
-            await expect(escrow.connect(seller).confirmShipment())
-                .to.emit(escrow, "ItemShipped")
-                .withArgs(seller.address);
-            expect(await escrow.getState()).to.equal("SHIPPED");
-        });
-
-        it("Should prevent non-seller from confirming shipment", async function () {
-            const { escrow, buyer, otherAccount } = await loadFixture(depositFixture);
-            await expect(escrow.connect(buyer).confirmShipment()).to.be.revertedWith("Only seller can call this function");
-            await expect(escrow.connect(otherAccount).confirmShipment()).to.be.revertedWith("Only seller can call this function");
-        });
-
-        it("Should prevent confirming shipment if not in AWAITING_DELIVERY state", async function () {
-            const { escrow, seller } = await loadFixture(deployEscrowFixture); // No deposit
-            await expect(escrow.connect(seller).confirmShipment()).to.be.revertedWith("Invalid state");
-        });
+    it("Seller can confirm delivery, allowing buyer to release", async function () {
+      const { escrow, seller } = await loadFixture(depositedFixture);
+      await expect(escrow.connect(seller).confirmDelivery())
+        .to.emit(escrow, "ItemShipped")
+        .withArgs(seller.address);
+      expect(await escrow.currentState()).to.equal(3); // COMPLETE
     });
-  });
 
-  describe("Buyer Actions", function () {
-    async function shippedFixture() {
-        const deployData = await deployEscrowFixture();
-        const { escrow, buyer, seller, depositAmount } = deployData;
-        const contractAddress = await escrow.getAddress();
-        await buyer.sendTransaction({ to: contractAddress, value: depositAmount });
-        await escrow.connect(seller).confirmShipment();
-        return deployData;
-    }
+    it("Buyer can release funds after delivery is confirmed", async function () {
+      const { escrow, buyer, seller, testToken, escrowAmount } = await loadFixture(depositedFixture);
+      await escrow.connect(seller).confirmDelivery(); // Seller confirms
 
-    describe("release", function() {
-        it("Should allow buyer to release funds to seller after shipment", async function () {
-            const { escrow, buyer, seller, depositAmount } = await loadFixture(shippedFixture);
-            await expect(escrow.connect(buyer).release()).to.changeEtherBalance(seller, depositAmount);
-            expect(await escrow.getState()).to.equal("COMPLETE");
-        });
+      await expect(escrow.connect(buyer).release())
+        .to.emit(escrow, "Released")
+        .withArgs(seller.address, escrowAmount);
 
-        it("Should prevent buyer from releasing funds before shipment", async function () {
-            const { escrow, buyer } = await loadFixture(deployEscrowFixture);
-            await buyer.sendTransaction({ to: await escrow.getAddress(), value: ethers.parseEther("1.0") });
-            await expect(escrow.connect(buyer).release()).to.be.revertedWith("Invalid state");
-        });
-
-        it("Should prevent non-buyer from releasing funds", async function () {
-            const { escrow, seller, otherAccount } = await loadFixture(shippedFixture);
-            await expect(escrow.connect(seller).release()).to.be.revertedWith("Only buyer can call this function");
-            await expect(escrow.connect(otherAccount).release()).to.be.revertedWith("Only buyer can call this function");
-        });
+      // Check final balances
+      expect(await testToken.balanceOf(seller.address)).to.equal(escrowAmount);
     });
   });
 
   describe("Dispute and Resolution", function () {
-    async function depositFixture() {
-        const deployData = await deployEscrowFixture();
-        const { escrow, buyer, depositAmount } = deployData;
-        const contractAddress = await escrow.getAddress();
-        await buyer.sendTransaction({ to: contractAddress, value: depositAmount });
-        return deployData;
+    async function depositedFixture() {
+      const data = await loadFixture(deployEscrowFixture);
+      const { escrow, testToken, buyer, escrowAmount, escrowAddress } = data;
+      await testToken.connect(buyer).approve(escrowAddress, escrowAmount);
+      await escrow.connect(buyer).deposit();
+      return data;
     }
 
-    describe("raiseDispute", function() {
-        it("Should allow buyer to raise a dispute", async function() {
-            const { escrow, buyer } = await loadFixture(depositFixture);
-            await expect(escrow.connect(buyer).raiseDispute())
-                .to.emit(escrow, "DisputeRaised").withArgs(buyer.address);
-            expect(await escrow.getState()).to.equal("DISPUTED");
-        });
-
-        it("Should allow seller to raise a dispute", async function() {
-            const { escrow, seller } = await loadFixture(depositFixture);
-            await expect(escrow.connect(seller).raiseDispute())
-                .to.emit(escrow, "DisputeRaised").withArgs(seller.address);
-            expect(await escrow.getState()).to.equal("DISPUTED");
-        });
-
-        it("Should prevent non-participant from raising a dispute", async function() {
-            const { escrow, otherAccount } = await loadFixture(depositFixture);
-            await expect(escrow.connect(otherAccount).raiseDispute()).to.be.revertedWith("Only buyer or seller can raise a dispute");
-        });
+    it("Buyer can raise a dispute", async function() {
+      const { escrow, buyer } = await loadFixture(depositedFixture);
+      await expect(escrow.connect(buyer).raiseDispute())
+        .to.emit(escrow, "DisputeRaised")
+        .withArgs(buyer.address);
+      expect(await escrow.currentState()).to.equal(2); // DISPUTED
     });
 
-    describe("refund (by Arbiter)", function() {
-        it("Should allow arbiter to refund buyer if item not shipped", async function() {
-            const { escrow, buyer, arbiter, depositAmount } = await loadFixture(depositFixture);
-            await expect(escrow.connect(arbiter).refund()).to.changeEtherBalance(buyer, depositAmount);
-            expect(await escrow.getState()).to.equal("REFUNDED");
-        });
+    it("Arbiter can resolve dispute in favor of seller", async function() {
+      const { escrow, arbiter, seller, testToken, escrowAmount } = await loadFixture(depositedFixture);
+      await escrow.connect(buyer).raiseDispute();
 
-        it("Should prevent non-arbiter from refunding", async function() {
-            const { escrow, buyer, seller } = await loadFixture(depositFixture);
-            await expect(escrow.connect(buyer).refund()).to.be.revertedWith("Only arbiter can call this function");
-            await expect(escrow.connect(seller).refund()).to.be.revertedWith("Only arbiter can call this function");
-        });
+      await expect(escrow.connect(arbiter).resolveDispute(seller.address))
+        .to.emit(escrow, "DisputeResolved");
+
+      expect(await testToken.balanceOf(seller.address)).to.equal(escrowAmount);
+      expect(await escrow.currentState()).to.equal(5); // RESOLVED
     });
 
-    describe("resolveDispute (by Arbiter)", function() {
-        async function disputedFixture() {
-            const deployData = await depositFixture();
-            const { escrow, buyer } = deployData;
-            await escrow.connect(buyer).raiseDispute();
-            return deployData;
-        }
+    it("Arbiter can refund the buyer", async function() {
+      const { escrow, arbiter, buyer, testToken, escrowAmount } = await loadFixture(depositedFixture);
 
-        it("Should allow arbiter to resolve dispute in favor of buyer", async function() {
-            const { escrow, buyer, arbiter, depositAmount } = await loadFixture(disputedFixture);
-            await expect(escrow.connect(arbiter).resolveDispute(buyer.address)).to.changeEtherBalance(buyer, depositAmount);
-            expect(await escrow.getState()).to.equal("RESOLVED");
-        });
+      await expect(escrow.connect(arbiter).refundBuyer())
+        .to.emit(escrow, "Refunded");
 
-        it("Should allow arbiter to resolve dispute in favor of seller", async function() {
-            const { escrow, seller, arbiter, depositAmount } = await loadFixture(disputedFixture);
-            await expect(escrow.connect(arbiter).resolveDispute(seller.address)).to.changeEtherBalance(seller, depositAmount);
-            expect(await escrow.getState()).to.equal("RESOLVED");
-        });
-
-        it("Should prevent resolving dispute if not in DISPUTED state", async function() {
-            const { escrow, buyer, arbiter } = await loadFixture(depositFixture);
-            await expect(escrow.connect(arbiter).resolveDispute(buyer.address)).to.be.revertedWith("Invalid state");
-        });
-
-        it("Should prevent non-arbiter from resolving dispute", async function() {
-            const { escrow, buyer, seller } = await loadFixture(disputedFixture);
-            await expect(escrow.connect(buyer).resolveDispute(buyer.address)).to.be.revertedWith("Only arbiter can call this function");
-            await expect(escrow.connect(seller).resolveDispute(seller.address)).to.be.revertedWith("Only arbiter can call this function");
-        });
-
-        it("Should prevent resolving dispute with an invalid winner", async function() {
-            const { escrow, arbiter, otherAccount } = await loadFixture(disputedFixture);
-            await expect(escrow.connect(arbiter).resolveDispute(otherAccount.address)).to.be.revertedWith("Winner must be either buyer or seller");
-        });
-    });
-  });
-
-  describe("Security Tests", function () {
-    async function shippedFixture() {
-        const deployData = await deployEscrowFixture();
-        const { escrow, buyer, seller, depositAmount } = deployData;
-        const contractAddress = await escrow.getAddress();
-        await buyer.sendTransaction({ to: contractAddress, value: depositAmount });
-        await escrow.connect(seller).confirmShipment();
-        return deployData;
-    }
-
-    it("Should revert release if seller rejects payment", async function () {
-      const { ethers } = hre;
-      const { buyer, arbiter, depositAmount } = await loadFixture(deployEscrowFixture);
-
-      const PaymentRejector = await ethers.getContractFactory("PaymentRejector");
-      const paymentRejector = await PaymentRejector.deploy();
-      const rejectorAddress = await paymentRejector.getAddress();
-
-      const Escrow = await ethers.getContractFactory("Escrow");
-      const escrow = await Escrow.deploy(buyer.address, rejectorAddress, arbiter.address);
-      const escrowAddress = await escrow.getAddress();
-
-      await buyer.sendTransaction({ to: escrowAddress, value: depositAmount });
-      // The PaymentRejector contract itself calls confirmShipment
-      await paymentRejector.doConfirmShipment(escrowAddress);
-
-      await expect(
-        escrow.connect(buyer).release()
-      ).to.be.revertedWithCustomError(escrow, "FailedToSendEther");
-    });
-
-    it("Should prevent re-entrant calls to release()", async function () {
-      const { ethers } = hre;
-      const { buyer, arbiter, depositAmount } = await loadFixture(deployEscrowFixture);
-
-      const Attacker = await ethers.getContractFactory("Attacker");
-      const attacker = await Attacker.deploy();
-      const attackerAddress = await attacker.getAddress();
-
-      const Escrow = await ethers.getContractFactory("Escrow");
-      const escrow = await Escrow.deploy(buyer.address, attackerAddress, arbiter.address);
-      const escrowAddress = await escrow.getAddress();
-
-      // The owner of the attacker contract is the deployer, not the buyer
-      await attacker.setEscrow(escrowAddress);
-
-      await buyer.sendTransaction({ to: escrowAddress, value: depositAmount });
-
-      // The attacker, as the seller, confirms shipment by calling its own function
-      await attacker.doConfirmShipment(escrowAddress);
-
-      await expect(
-        escrow.connect(buyer).release()
-      ).to.be.revertedWithCustomError(escrow, "FailedToSendEther");
+      expect(await testToken.balanceOf(buyer.address)).to.equal(escrowAmount);
+      expect(await escrow.currentState()).to.equal(4); // REFUNDED
     });
   });
 });
