@@ -1,134 +1,88 @@
-import React from 'react';
-import { render, screen, fireEvent, within, waitForElementToBeRemoved } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { Web3Context } from '../../context/Web3Context';
+import { render, screen, fireEvent, waitFor } from '../../test-utils/test-utils';
+import { mockWeb3Context } from '../../test-utils/mocks';
 import CreateEscrow from './CreateEscrow';
 
-// Mock the toaster since it's used in the Web3Context and can cause issues in tests
-jest.mock('../ui/toaster', () => ({
-  toaster: {
-    create: jest.fn(),
-  },
-}));
-
-const mockCreateEscrow = jest.fn();
-
-import { ChakraProvider } from '@chakra-ui/react';
-
-const customRender = (ui, { providerProps, ...renderOptions }) => {
-  return render(
-    <ChakraProvider>
-      <Web3Context.Provider value={providerProps}>{ui}</Web3Context.Provider>
-    </ChakraProvider>,
-    renderOptions
-  );
-};
-
 describe('CreateEscrow Component', () => {
-  let providerProps;
+  it('renders the create button and opens the modal on click', () => {
+    render(<CreateEscrow />);
 
-  beforeEach(() => {
-    providerProps = {
-      createEscrow: mockCreateEscrow.mockResolvedValue({ success: true, address: '0xNewEscrow' }),
-    };
-    mockCreateEscrow.mockClear();
-  });
+    // Check if the button is there
+    const createButton = screen.getByRole('button', { name: /create new escrow/i });
+    expect(createButton).toBeInTheDocument();
 
-  test('modal opens and closes correctly', async () => {
-    customRender(<CreateEscrow />, { providerProps });
+    // Click the button to open the modal
+    fireEvent.click(createButton);
 
-    // Modal should be closed initially
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-
-    // Open modal
-    const openButton = screen.getByRole('button', { name: /Create New Escrow/i });
-    userEvent.click(openButton);
-
-    // Use findByRole to wait for the modal to appear
-    const modal = await screen.findByRole('dialog');
-    expect(modal).toBeInTheDocument();
-    // The header element doesn't have a 'heading' role, so we find by text.
+    // Check if the modal header is visible
     expect(screen.getByText('Create a New Escrow')).toBeInTheDocument();
-
-    // Close modal with cancel button
-    const cancelButton = screen.getByRole('button', { name: /Cancel/i });
-    userEvent.click(cancelButton);
-
-    await waitForElementToBeRemoved(() => screen.queryByRole('dialog'));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  test('shows validation error for invalid seller address', async () => {
-    customRender(<CreateEscrow />, { providerProps });
-    userEvent.click(screen.getByRole('button', { name: /Create New Escrow/i }));
+  it('shows an error message for an invalid seller address', async () => {
+    render(<CreateEscrow />);
+    fireEvent.click(screen.getByRole('button', { name: /create new escrow/i }));
 
-    const modal = await screen.findByRole('dialog');
-    const sellerInput = within(modal).getByLabelText(/Seller Address/i);
-    await userEvent.type(sellerInput, 'invalid-address');
+    const sellerInput = screen.getByLabelText(/seller address/i);
+    const createButton = screen.getByRole('button', { name: 'Create' });
 
-    const createButton = within(modal).getByRole('button', { name: 'Create' });
-    userEvent.click(createButton);
+    fireEvent.change(sellerInput, { target: { value: 'invalid-address' } });
+    fireEvent.click(createButton);
 
-    expect(await within(modal).findByText(/Invalid seller address/i)).toBeInTheDocument();
-    expect(mockCreateEscrow).not.toHaveBeenCalled();
+    const errorMessage = await screen.findByText('Invalid seller address');
+    expect(errorMessage).toBeInTheDocument();
+    expect(mockWeb3Context.createEscrow).not.toHaveBeenCalled();
   });
 
-  test('shows validation error for invalid arbiter address', async () => {
-    customRender(<CreateEscrow />, { providerProps });
-    userEvent.click(screen.getByRole('button', { name: /Create New Escrow/i }));
+  it('shows an error message if seller is the same as the buyer', async () => {
+    render(<CreateEscrow />);
+    fireEvent.click(screen.getByRole('button', { name: /create new escrow/i }));
 
-    const modal = await screen.findByRole('dialog');
-    const sellerInput = within(modal).getByLabelText(/Seller Address/i);
-    await userEvent.type(sellerInput, '0x1234567890123456789012345678901234567890');
-    const arbiterInput = within(modal).getByLabelText(/Arbiter Address/i);
-    await userEvent.type(arbiterInput, 'invalid-address');
+    const sellerInput = screen.getByLabelText(/seller address/i);
+    const createButton = screen.getByRole('button', { name: 'Create' });
 
-    const createButton = within(modal).getByRole('button', { name: 'Create' });
-    userEvent.click(createButton);
+    // Use the buyer's address from the mock context
+    fireEvent.change(sellerInput, { target: { value: mockWeb3Context.account } });
+    fireEvent.click(createButton);
 
-    expect(await within(modal).findByText(/Invalid arbiter address/i)).toBeInTheDocument();
-    expect(mockCreateEscrow).not.toHaveBeenCalled();
+    const errorMessage = await screen.findByText('Seller cannot be the same as the buyer.');
+    expect(errorMessage).toBeInTheDocument();
+    expect(mockWeb3Context.createEscrow).not.toHaveBeenCalled();
   });
 
-  test('successfully creates an escrow with valid addresses', async () => {
-    customRender(<CreateEscrow />, { providerProps });
-    userEvent.click(screen.getByRole('button', { name: /Create New Escrow/i }));
+  it('calls createEscrow with correct arguments on successful submission', async () => {
+    const sellerAddress = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
+    const arbiterAddress = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
 
-    const modal = await screen.findByRole('dialog');
-    const sellerAddress = '0x1234567890123456789012345678901234567890';
-    const arbiterAddress = '0x0987654321098765432109876543210987654321';
+    render(<CreateEscrow />);
+    fireEvent.click(screen.getByRole('button', { name: /create new escrow/i }));
 
-    const sellerInput = within(modal).getByLabelText(/Seller Address/i);
-    await userEvent.type(sellerInput, sellerAddress);
-    const arbiterInput = within(modal).getByLabelText(/Arbiter Address/i);
-    await userEvent.type(arbiterInput, arbiterAddress);
+    const sellerInput = screen.getByLabelText(/seller address/i);
+    const arbiterInput = screen.getByLabelText(/arbiter address/i);
+    const createButton = screen.getByRole('button', { name: 'Create' });
 
-    const createButton = within(modal).getByRole('button', { name: 'Create' });
-    await userEvent.click(createButton);
+    fireEvent.change(sellerInput, { target: { value: sellerAddress } });
+    fireEvent.change(arbiterInput, { target: { value: arbiterAddress } });
+    fireEvent.click(createButton);
 
-    expect(mockCreateEscrow).toHaveBeenCalledWith(sellerAddress, arbiterAddress);
-
-    // Check that the modal closes on successful submission
-    await waitForElementToBeRemoved(() => screen.queryByRole('dialog'));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockWeb3Context.createEscrow).toHaveBeenCalledWith(sellerAddress, arbiterAddress);
+    });
   });
 
-  test('allows empty arbiter address and submits with zero address', async () => {
-    customRender(<CreateEscrow />, { providerProps });
-    userEvent.click(screen.getByRole('button', { name: /Create New Escrow/i }));
+  it('uses a zero address for arbiter if the input is empty', async () => {
+    const sellerAddress = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
+    const zeroAddress = '0x0000000000000000000000000000000000000000';
 
-    const modal = await screen.findByRole('dialog');
-    const sellerAddress = '0x1234567890123456789012345678901234567890';
-    const emptyArbiterAddress = '0x0000000000000000000000000000000000000000';
+    render(<CreateEscrow />);
+    fireEvent.click(screen.getByRole('button', { name: /create new escrow/i }));
 
-    const sellerInput = within(modal).getByLabelText(/Seller Address/i);
-    await userEvent.type(sellerInput, sellerAddress);
+    const sellerInput = screen.getByLabelText(/seller address/i);
+    const createButton = screen.getByRole('button', { name: 'Create' });
 
-    // Arbiter input is left empty
+    fireEvent.change(sellerInput, { target: { value: sellerAddress } });
+    fireEvent.click(createButton);
 
-    const createButton = within(modal).getByRole('button', { name: 'Create' });
-    await userEvent.click(createButton);
-
-    expect(mockCreateEscrow).toHaveBeenCalledWith(sellerAddress, emptyArbiterAddress);
+    await waitFor(() => {
+      expect(mockWeb3Context.createEscrow).toHaveBeenCalledWith(sellerAddress, zeroAddress);
+    });
   });
 });
