@@ -21,7 +21,7 @@ import { useWeb3 } from '../../context/Web3Context';
 
 const CreateEscrow = () => {
   const { isOpen, onOpen, onClose } = useDisclosure();
-  const { createEscrow } = useWeb3(); // Use the context function
+  const { createEscrow, account } = useWeb3(); // Use the context function
   const toast = useToast();
 
   const [seller, setSeller] = useState('');
@@ -34,6 +34,9 @@ const CreateEscrow = () => {
     let isValid = true;
     if (!ethers.isAddress(seller)) {
       setSellerError('Invalid seller address');
+      isValid = false;
+    } else if (seller.toLowerCase() === account?.toLowerCase()) {
+      setSellerError('Seller cannot be the same as the buyer.');
       isValid = false;
     } else {
       setSellerError('');

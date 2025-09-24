@@ -38,6 +38,7 @@ const EscrowDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [depositAmount, setDepositAmount] = useState('');
+  const [depositError, setDepositError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
   const fetchEscrowDetails = useCallback(async () => {
@@ -70,12 +71,82 @@ const EscrowDetailPage = () => {
 
   useEffect(() => {
     if (escrowContract) {
+      // Initial fetch
       fetchEscrowDetails();
-      const updateListener = () => fetchEscrowDetails();
-      escrowContract.on('*', updateListener);
-      return () => escrowContract.off('*', updateListener);
+
+      // Individual listeners for state updates
+      const onDeposit = () => {
+        console.log('Deposit event received, updating state...');
+        setEscrow(prev => ({ ...prev, state: 'AWAITING_DELIVERY' }));
+        provider.getBalance(address).then(b => setBalance(ethers.formatEther(b)));
+      };
+
+      const onShipment = () => {
+        console.log('Shipment event received, updating state...');
+        setEscrow(prev => ({ ...prev, state: 'SHIPPED' }));
+      };
+
+      const onRelease = () => {
+        console.log('Release event received, updating state...');
+        setEscrow(prev => ({ ...prev, state: 'COMPLETE' }));
+        setBalance('0.0');
+      };
+
+      const onDispute = () => {
+        console.log('Dispute event received, updating state...');
+        setEscrow(prev => ({ ...prev, state: 'DISPUTED' }));
+      };
+
+      const onRefund = () => {
+        console.log('Refund event received, updating state...');
+        setEscrow(prev => ({ ...prev, state: 'REFUNDED' }));
+        setBalance('0.0');
+      };
+
+      const onResolve = () => {
+        console.log('Resolve event received, updating state...');
+        setEscrow(prev => ({ ...prev, state: 'RESOLVED' }));
+        setBalance('0.0');
+      };
+
+      escrowContract.on('Deposited', onDeposit);
+      escrowContract.on('ItemShipped', onShipment);
+      escrowContract.on('Released', onRelease);
+      escrowContract.on('DisputeRaised', onDispute);
+      escrowContract.on('Refunded', onRefund);
+      escrowContract.on('DisputeResolved', onResolve);
+
+      // Cleanup function
+      return () => {
+        escrowContract.off('Deposited', onDeposit);
+        escrowContract.off('ItemShipped', onShipment);
+        escrowContract.off('Released', onRelease);
+        escrowContract.off('DisputeRaised', onDispute);
+        escrowContract.off('Refunded', onRefund);
+        escrowContract.off('DisputeResolved', onResolve);
+      };
     }
-  }, [escrowContract, fetchEscrowDetails]);
+  }, [escrowContract, fetchEscrowDetails, provider, address]);
+
+  const validateDeposit = () => {
+    setDepositError('');
+    if (!depositAmount) {
+      setDepositError('Deposit amount is required.');
+      return false;
+    }
+    try {
+      const amount = parseFloat(depositAmount);
+      if (isNaN(amount) || amount <= 0) {
+        setDepositError('Please enter a valid positive number.');
+        return false;
+      }
+      ethers.parseEther(depositAmount); // This will throw an error for invalid formats
+    } catch (e) {
+      setDepositError('Invalid ETH amount format.');
+      return false;
+    }
+    return true;
+  };
 
   const handleAction = async (action) => {
     setActionLoading(true);
@@ -83,6 +154,10 @@ const EscrowDetailPage = () => {
     try {
       switch (action.type) {
         case 'DEPOSIT':
+          if (!validateDeposit()) {
+            setActionLoading(false);
+            return;
+          }
           if (!signer) throw new Error("Signer not available");
           tx = await signer.sendTransaction({
             to: address,
@@ -130,11 +205,28 @@ const EscrowDetailPage = () => {
       case 'AWAITING_PAYMENT':
         return isBuyer && (
           <VStack>
-            <InputGroup>
-              <Input placeholder="Amount in ETH" value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} />
-              <InputRightElement children="ETH" />
-            </InputGroup>
-            <Button colorScheme="blue" onClick={() => handleAction({ type: 'DEPOSIT', payload: depositAmount })} isLoading={actionLoading} isDisabled={!depositAmount}>Deposit Funds</Button>
+            <FormControl isInvalid={!!depositError}>
+              <InputGroup>
+                <Input
+                  placeholder="Amount in ETH"
+                  value={depositAmount}
+                  onChange={(e) => {
+                    setDepositAmount(e.target.value);
+                    if (depositError) setDepositError('');
+                  }}
+                />
+                <InputRightElement children="ETH" />
+              </InputGroup>
+              <FormErrorMessage>{depositError}</FormErrorMessage>
+            </FormControl>
+            <Button
+              colorScheme="blue"
+              onClick={() => handleAction({ type: 'DEPOSIT', payload: depositAmount })}
+              isLoading={actionLoading}
+              isDisabled={!depositAmount || !!depositError}
+            >
+              Deposit Funds
+            </Button>
           </VStack>
         );
       case 'AWAITING_DELIVERY':
