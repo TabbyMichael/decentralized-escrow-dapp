@@ -60,7 +60,7 @@
 |---------------------|-----------------------------------------------------------------------------|
 | **Blockchain**      | Solidity (0.8.19), Ethereum                                                 |
 | **Development**     | Hardhat (v2.12.0), Ethers.js (v6.6.2)                                       |
-| **Frontend**        | React (18.2.0), Chakra UI (1.8.8), web3-react (6.1.9)                      |
+| **Frontend**        | React (18.2.0), Chakra UI (1.8.8), web3-react (6.1.9), React Router (6.x) |
 | **Testing**         | Mocha, Chai, hardhat-chai-matchers                                          |
 | **Tools**           | MetaMask, Git, npm                                                          |
 
@@ -104,7 +104,14 @@
    ```bash
    npx hardhat run scripts/deploy.js --network localhost
    ```
-   Copy the deployed `EscrowFactory` contract address from the output. The frontend UI is not compatible with the factory pattern and is preserved in its original state for demonstration purposes only.
+   Copy the deployed `EscrowFactory` contract address from the output and paste it into `frontend/.env` as the value for `REACT_APP_FACTORY_ADDRESS`.
+
+6. **Run the frontend** (in a new terminal)
+   ```bash
+   cd frontend
+   npm start
+   ```
+   The application will be running at `http://localhost:3000`.
 
 ### Interacting with the Factory
 
