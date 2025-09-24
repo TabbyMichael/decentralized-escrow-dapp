@@ -33,7 +33,7 @@ def send_verification_email(user, request):
     send_mail(
         email_subject,
         email_body,
-        'noreply@yourdomain.com',
+        settings.DEFAULT_FROM_EMAIL,
         [user.email],
         fail_silently=False,
     )
@@ -107,7 +107,7 @@ class PasswordResetRequestView(generics.GenericAPIView):
             send_mail(
                 email_subject,
                 email_body,
-                'noreply@yourdomain.com',
+                settings.DEFAULT_FROM_EMAIL,
                 [user.email],
                 fail_silently=False,
             )
@@ -125,7 +125,9 @@ class PasswordResetConfirmView(generics.GenericAPIView):
     serializer_class = SetNewPasswordSerializer
 
     def patch(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(
+            data=request.data, context={'uidb64': kwargs['uidb64'], 'token': kwargs['token']}
+        )
         serializer.is_valid(raise_exception=True)
         return Response({'message': 'Password reset successful'}, status=status.HTTP_200_OK)
 
