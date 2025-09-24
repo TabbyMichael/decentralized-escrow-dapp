@@ -11,32 +11,21 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
-import environ
-import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
-# Initialize django-environ
-env = environ.Env(
-    # set casting, default value
-    DEBUG=(bool, False)
-)
-
-# Take environment variables from .env file
-environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = env("SECRET_KEY")
+SECRET_KEY = "django-insecure-kh(zp@l!%bura!jx*44*$3rs%^u8$2#x49y)y9!3r4l5#6mbc5"
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env("DEBUG")
+DEBUG = True
 
-ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
+ALLOWED_HOSTS = []
 
 
 # Application definition
@@ -51,7 +40,6 @@ INSTALLED_APPS = [
     # 3rd party apps
     "rest_framework",
     "rest_framework_simplejwt",
-    "corsheaders",
     # local apps
     "accounts",
 ]
@@ -62,7 +50,6 @@ AUTH_USER_MODEL = "accounts.User"
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -149,25 +136,9 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
-    "DEFAULT_THROTTLE_CLASSES": [
-        "rest_framework.throttling.AnonRateThrottle",
-        "rest_framework.throttling.UserRateThrottle",
-    ],
-    "DEFAULT_THROTTLE_RATES": {
-        "anon": "10/minute",
-        "user": "100/minute",
-    },
 }
 
 # Email backend
 # https://docs.djangoproject.com/en/5.2/topics/email/
 
-EMAIL_BACKEND = env("EMAIL_BACKEND")
-
-# CORS settings
-# https://github.com/adamchainz/django-cors-headers
-
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
