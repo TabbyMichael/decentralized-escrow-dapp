@@ -10,6 +10,7 @@ import {
   ModalCloseButton,
   useDisclosure,
   FormControl,
+  FormErrorMessage,
   FormLabel,
   Input,
   VStack,
@@ -17,53 +18,69 @@ import {
 } from '@chakra-ui/react';
 import { ethers } from 'ethers';
 import { useWeb3 } from '../../context/Web3Context';
-import EscrowFactoryArtifact from '../../artifacts/contracts/EscrowFactory.sol/EscrowFactory.json';
-
-const FACTORY_ADDRESS = process.env.REACT_APP_FACTORY_ADDRESS;
 
 const CreateEscrow = () => {
   const { isOpen, onOpen, onClose } = useDisclosure();
-  const { signer } = useWeb3();
+  const { createEscrow } = useWeb3(); // Use the context function
   const toast = useToast();
 
   const [seller, setSeller] = useState('');
   const [arbiter, setArbiter] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [sellerError, setSellerError] = useState('');
+  const [arbiterError, setArbiterError] = useState('');
+
+  const validateAddresses = () => {
+    let isValid = true;
+    if (!ethers.isAddress(seller)) {
+      setSellerError('Invalid seller address');
+      isValid = false;
+    } else {
+      setSellerError('');
+    }
+
+    // Arbiter can be empty, but if it's not, it must be valid
+    const finalArbiter = arbiter.trim() === '' ? '0x0000000000000000000000000000000000000000' : arbiter;
+    if (!ethers.isAddress(finalArbiter)) {
+      setArbiterError('Invalid arbiter address');
+      isValid = false;
+    } else {
+      setArbiterError('');
+    }
+    return isValid;
+  };
 
   const handleCreateEscrow = async () => {
-    if (!signer) {
-      toast({ title: 'Please connect your wallet', status: 'warning' });
-      return;
-    }
-    if (!ethers.isAddress(seller) || !ethers.isAddress(arbiter)) {
-      toast({ title: 'Please enter valid seller and arbiter addresses', status: 'error' });
+    if (!validateAddresses()) {
       return;
     }
 
     setIsLoading(true);
+    const finalArbiter = arbiter.trim() === '' ? '0x0000000000000000000000000000000000000000' : arbiter;
+
     try {
-      const factoryContract = new ethers.Contract(
-        FACTORY_ADDRESS,
-        EscrowFactoryArtifact.abi,
-        signer
-      );
+      const result = await createEscrow(seller, finalArbiter);
 
-      const tx = await factoryContract.createEscrow(seller, arbiter);
-      await tx.wait();
-
-      toast({
-        title: 'Escrow Created!',
-        description: `Transaction successful: ${tx.hash}`,
-        status: 'success',
-        duration: 9000,
-        isClosable: true,
-      });
-      onClose();
+      if (result.success) {
+        toast({
+          title: 'Escrow Created!',
+          description: `New escrow created at address: ${result.address}`,
+          status: 'success',
+          duration: 9000,
+          isClosable: true,
+        });
+        onClose();
+        // Reset form
+        setSeller('');
+        setArbiter('');
+      } else {
+        throw result.error || new Error('An unknown error occurred');
+      }
     } catch (error) {
       console.error('Error creating escrow:', error);
       toast({
-        title: 'Error creating escrow',
-        description: error.message,
+        title: 'Error Creating Escrow',
+        description: error.message || 'There was an error creating the escrow.',
         status: 'error',
         duration: 9000,
         isClosable: true,
@@ -86,21 +103,23 @@ const CreateEscrow = () => {
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing={4}>
-              <FormControl isRequired>
+              <FormControl isRequired isInvalid={!!sellerError}>
                 <FormLabel>Seller Address</FormLabel>
                 <Input
                   placeholder="0x..."
                   value={seller}
                   onChange={(e) => setSeller(e.target.value)}
                 />
+                <FormErrorMessage>{sellerError}</FormErrorMessage>
               </FormControl>
-              <FormControl isRequired>
-                <FormLabel>Arbiter Address</FormLabel>
+              <FormControl isInvalid={!!arbiterError}>
+                <FormLabel>Arbiter Address (optional)</FormLabel>
                 <Input
                   placeholder="0x..."
                   value={arbiter}
                   onChange={(e) => setArbiter(e.target.value)}
                 />
+                <FormErrorMessage>{arbiterError}</FormErrorMessage>
               </FormControl>
             </VStack>
           </ModalBody>
