@@ -19,8 +19,15 @@ build/
 
 # Hardhat
 /cache/
-/artifacts/
 /typechain-types/
+
+# Ignore Hardhat build artifacts but keep the final JSON ABI
+/artifacts/build-info/
+/artifacts/**/*.dbg.json
+
+# Also ignore the artifacts that are copied to the frontend
+frontend/src/artifacts/build-info/
+frontend/src/artifacts/**/*.dbg.json
 
 # IDE
 .idea/
