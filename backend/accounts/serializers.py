@@ -41,22 +41,20 @@ class PasswordResetRequestSerializer(serializers.Serializer):
 class SetNewPasswordSerializer(serializers.Serializer):
     """
     Serializer for resetting a user's password.
-    Requires a token, uidb64, and a new password.
+    Requires a new password and validates token and uidb64 from the context.
     """
     password = serializers.CharField(
         min_length=8, max_length=128, write_only=True, style={'input_type': 'password'}
     )
-    token = serializers.CharField(min_length=1, write_only=True)
-    uidb64 = serializers.CharField(min_length=1, write_only=True)
 
     class Meta:
-        fields = ['password', 'token', 'uidb64']
+        fields = ['password']
 
     def validate(self, attrs):
         try:
             password = attrs.get('password')
-            token = attrs.get('token')
-            uidb64 = attrs.get('uidb64')
+            token = self.context.get('token')
+            uidb64 = self.context.get('uidb64')
 
             user_id = smart_str(urlsafe_base64_decode(uidb64))
             user = User.objects.get(id=user_id)
@@ -67,8 +65,8 @@ class SetNewPasswordSerializer(serializers.Serializer):
             user.set_password(password)
             user.save()
 
-            return user
-        except (DjangoUnicodeDecodeError, User.DoesNotExist) as e:
+            return attrs
+        except (DjangoUnicodeDecodeError, User.DoesNotExist):
             raise AuthenticationFailed('The reset link is invalid', 401)
         except Exception as e:
             raise AuthenticationFailed('Something went wrong', 401)

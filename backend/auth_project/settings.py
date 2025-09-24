@@ -141,4 +141,16 @@ REST_FRAMEWORK = {
 # Email backend
 # https://docs.djangoproject.com/en/5.2/topics/email/
 
+# For development, all emails are printed to the console.
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+DEFAULT_FROM_EMAIL = "noreply@example.com"
+
+# For production, you should use a transactional email service.
+# Example for SMTP:
+# EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+# EMAIL_HOST = 'smtp.example.com'
+# EMAIL_PORT = 587
+# EMAIL_USE_TLS = True
+# EMAIL_HOST_USER = 'your-smtp-username'  # Recommended to use environment variables
+# EMAIL_HOST_PASSWORD = 'your-smtp-password' # Recommended to use environment variables
+# DEFAULT_FROM_EMAIL = 'noreply@yourdomain.com'
