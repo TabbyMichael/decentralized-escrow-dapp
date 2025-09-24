@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 import EscrowFactory from '../artifacts/contracts/EscrowFactory.sol/EscrowFactory.json';
 import Escrow from '../artifacts/contracts/Escrow.sol/Escrow.json';
 
-const Web3Context = createContext();
+export const Web3Context = createContext();
 
 export const useWeb3 = () => useContext(Web3Context);
 
