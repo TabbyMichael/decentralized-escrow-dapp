@@ -76,13 +76,15 @@ export const Web3Provider = ({ children }) => {
     try {
       const tx = await factoryContract.createEscrow(seller, arbiter);
       const receipt = await tx.wait();
+      // The listener will automatically pick up the new escrow.
       const event = receipt.logs.find(log => log.fragment && log.fragment.name === 'EscrowCreated');
-      if (!event) throw new Error("EscrowCreated event not found");
-      await fetchEscrows();
-      return { success: true, address: event.args.escrowAddress };
+      if (!event) {
+        throw new Error("EscrowCreated event not found in transaction receipt");
+      }
+      return { success: true, address: event.args[0] }; // event.args[0] is the escrowAddress
     } catch (error) {
       console.error("Error creating escrow:", error);
-      return { success: false, error: error.message };
+      return { success: false, error };
     }
   };
 
@@ -95,14 +97,63 @@ export const Web3Provider = ({ children }) => {
     connectWallet();
   }, [connectWallet]);
 
+  // Effect for fetching initial data and listening for new escrows
   useEffect(() => {
-    if (factoryContract) {
+    if (factoryContract && provider) {
       fetchEscrows();
-      const onEscrowCreated = () => fetchEscrows();
-      factoryContract.on('EscrowCreated', onEscrowCreated);
-      return () => factoryContract.off('EscrowCreated', onEscrowCreated);
+
+      const handleEscrowCreated = async (escrowAddress, buyer, seller) => {
+        console.log(`New Escrow Created: ${escrowAddress}`);
+        const escrowContract = new ethers.Contract(escrowAddress, Escrow.abi, provider);
+        const arbiter = await escrowContract.arbiter();
+        const newEscrow = {
+          address: escrowAddress,
+          buyer,
+          seller,
+          arbiter,
+          state: 'AWAITING_PAYMENT',
+        };
+        setEscrows(prev => [newEscrow, ...prev]);
+      };
+
+      factoryContract.on('EscrowCreated', handleEscrowCreated);
+
+      return () => {
+        factoryContract.off('EscrowCreated', handleEscrowCreated);
+      };
     }
-  }, [factoryContract, fetchEscrows]);
+  }, [factoryContract, provider, fetchEscrows]);
+
+  // Effect for listening to events on individual escrow contracts
+  useEffect(() => {
+    if (provider && escrows.length > 0) {
+      const handleStateChange = (escrowAddress, newState) => {
+        setEscrows(prev =>
+          prev.map(escrow =>
+            escrow.address.toLowerCase() === escrowAddress.toLowerCase()
+              ? { ...escrow, state: newState }
+              : escrow
+          )
+        );
+      };
+
+      const contracts = escrows.map(e => new ethers.Contract(e.address, Escrow.abi, provider));
+
+      contracts.forEach(contract => {
+        const address = contract.target;
+        contract.on('Deposited', () => handleStateChange(address, 'AWAITING_DELIVERY'));
+        contract.on('ItemShipped', () => handleStateChange(address, 'SHIPPED'));
+        contract.on('DisputeRaised', () => handleStateChange(address, 'DISPUTED'));
+        contract.on('Released', () => handleStateChange(address, 'COMPLETE'));
+        contract.on('Refunded', () => handleStateChange(address, 'REFUNDED'));
+        contract.on('DisputeResolved', () => handleStateChange(address, 'RESOLVED'));
+      });
+
+      return () => {
+        contracts.forEach(contract => contract.removeAllListeners());
+      };
+    }
+  }, [escrows, provider]);
 
   const value = {
     account,
